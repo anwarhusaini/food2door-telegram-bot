@@ -1,18 +1,7 @@
 {
   "version": 2,
   "build": {
-    "framework": "none",
-    "env": {
-      "TELEGRAM_BOT_TOKEN": {
-        "fromEnv": "TELEGRAM_BOT_TOKEN"
-      },
-      "ORDER_GROUP": {
-        "fromEnv": "ORDER_GROUP"
-      },
-      "KITCHEN_GROUP": {
-        "fromEnv": "KITCHEN_GROUP"
-      }
-    }
+    "framework": "none"
   },
   "functions": {
     "api/bot.py": {
