@@ -4,23 +4,17 @@
     "framework": "none"
   },
   "functions": {
-    "api/bot.py": {
-      "runtime": "now-python@2.8.1",
-      "memory": 512,
-      "maxDuration": 10
+    "api/test.py": {
+      "runtime": "now-python@2.8.1"
     }
   },
   "routes": [
     {
-      "source": "/api/bot",
+      "source": "/test",
       "methods": [
         "POST"
       ],
-      "destination": "/api/bot.py"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/api/bot.py"
+      "destination": "/api/test.py"
     }
   ]
 }
