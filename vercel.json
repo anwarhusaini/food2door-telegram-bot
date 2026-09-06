@@ -4,17 +4,23 @@
     "framework": "none"
   },
   "functions": {
-    "api/test.py": {
-      "runtime": "now-python@2.8.1"
+    "api/webhook.py": {
+      "runtime": "now-python@2.8.1",
+      "memory": 512,
+      "maxDuration": 10
     }
   },
   "routes": [
     {
-      "source": "/test",
+      "source": "/webhook",
       "methods": [
         "POST"
       ],
-      "destination": "/api/test.py"
+      "destination": "/api/webhook.py"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/webhook.py"
     }
   ]
 }
