@@ -5,7 +5,7 @@
   },
   "functions": {
     "api/bot.py": {
-      "runtime": "python3.11",
+      "runtime": "now-python@2.8.1",
       "memory": 512,
       "maxDuration": 10
     }
