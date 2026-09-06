@@ -1,0 +1,35 @@
+# Render Blueprint for Food2Door Telegram Bot
+services:
+  - type: web
+    name: food2door-telegram-bot
+    env: python
+    buildCommand: ""
+    startCommand: "python bot.py"
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ORDER_GROUP
+        sync: false
+      - key: KITCHEN_GROUP
+        sync: false
+      - key: DATABASE_PATH
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+    plan: free
+
+  # - type: cron
+  #   name: food2door-reminder
+  #   env: python
+  #   buildCommand: ""
+  #   startCommand: "python cron_reminder.py"
+  #   schedule: "*/2 * * * *"
+  #   envVars:
+  #     - key: TELEGRAM_BOT_TOKEN
+  #       sync: false
+  #     - key: ORDER_GROUP
+  #       sync: false
+  #     - key: KITCHEN_GROUP
+  #       sync: false
+  #     - key: DATABASE_PATH
+  #       sync: false
