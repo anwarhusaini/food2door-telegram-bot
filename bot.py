@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Food2Door Telegram Order Tracking Bot"""
+"""Food2Door Telegram Order Tracking Bot - Webhook Version for Vercel"""
 
 import os
 import sqlite3
 import asyncio
+import hashlib
 from datetime import datetime, timedelta
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from functools import partial
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, WebhookAdapter
 
 # Configuration
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8935028631:AAFPDx1DzJmbfQg-_J44dyKgxE7XrYdEaaY")
@@ -14,9 +17,18 @@ ORDER_GROUP = os.environ.get("ORDER_GROUP", "@f2d_order")
 KITCHEN_GROUP = os.environ.get("KITCHEN_GROUP", "@f2d_kitchen")
 DATABASE_PATH = os.environ.get("FOOD2DOOR_DB", "/Users/anwarhusaini/food2door.db")
 
-# Supabase config
+# Supabase config  
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://gzzlokhsibryyflddikh.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "sb_publishable_key_here")
+
+# Vercel-specific: webhook URL is derived from the deployment URL
+WEBHOOK_URL = os.environ.get("VERCEL_URL")
+if WEBHOOK_URL:
+    WEBHOOK_URL = f"https://{WEBHOOK_URL}"
+else:
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://food2door-telegram-gcgr3j6bw-anwarhusaini.vercel.app")
+
+print(f"Webhook URL: {WEBHOOK_URL}")
 
 def get_db():
     """Get SQLite database connection"""
@@ -30,20 +42,16 @@ def init_order_in_db(order_number):
     import sqlite3
     conn = get_db()
     cursor = conn.cursor()
-    # Check if order already exists
     cursor.execute("SELECT id FROM orders WHERE order_number = ?", (order_number,))
     if cursor.fetchone():
         conn.close()
-        return cursor.fetchone()['id']
+        return cursor.fetchone()["id"]
     
-    # Create new order
     cursor.execute(
         "INSERT INTO orders (order_number, customer_name, phone, delivery_address, order_type, payment_method, status, order_date) VALUES (?, ?, ?, ?, ?, ?, 'New', datetime('now'))",
         (order_number, "New Customer", "+977 9812345678", "Kathmandu, Putalisadak", "Delivery", "Cash")
     )
     order_id = cursor.lastrowid
-    
-    # Initialize telegram_order_status
     cursor.execute(
         "INSERT INTO telegram_order_status (order_id, current_status) VALUES (?, 'New')",
         (order_id,)
@@ -90,7 +98,6 @@ def update_telegram_status(order_id, new_status, checked_by="User"):
     """Update Telegram-specific status in SQLite"""
     conn = get_db()
     cursor = conn.cursor()
-    # Upsert - insert or update
     cursor.execute(
         """INSERT INTO telegram_order_status (order_id, current_status, last_checked_by, last_transition_at) 
            VALUES (?, ?, ?, datetime('now')) 
@@ -100,7 +107,6 @@ def update_telegram_status(order_id, new_status, checked_by="User"):
                last_transition_at = datetime('now')""",
         (order_id, new_status, checked_by)
     )
-    # Also update the main orders table
     cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
     conn.commit()
     conn.close()
@@ -111,13 +117,13 @@ def next_keyboard(status):
         "New": [[InlineKeyboardButton("Start Prep", callback_data="prep")]],
         "Prep": [[InlineKeyboardButton("Mark Out", callback_data="out")]],
         "Out": [[InlineKeyboardButton("Mark Done", callback_data="done")]],
-        "Done": []  # No buttons needed
+        "Done": []
     }
     keyboard = keyboards.get(status, [[InlineKeyboardButton("Start Prep", callback_data="prep")]])
     return InlineKeyboardMarkup(keyboard)
 
 async def send_to_kitchen(order_id, order_number, current_status):
-    """Send order to kitchen group with status"""
+    """Send order notification to kitchen group"""
     import sqlite3
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -129,129 +135,87 @@ async def send_to_kitchen(order_id, order_number, current_status):
     phone = row[1] if row else "N/A"
     address = row[2] if row else "N/A"
     
-    message = f"🍳 *NEW ORDER TO PREP*
+    # Get bot instance from context if available, otherwise create one
+    # For webhook handler, we'll use the bot passed in
+    pass  # This will be handled in the webhook handler
 
-"
-    message += f"Order #: {order_number}
-"
-    message += f"Customer: {customer_name}
-"
-    message += f"Phone: {phone}
-"
-    message += f"Address: {address}
-"
-    message += f"Current Status: {current_status}
-"
-    message += f"⚠️ Atan/Bella has started prep. Cook staff please mark as 'Out' when complete."
-    
-    try:
-        from telegram import Bot
-        bot = Bot(token=BOT_TOKEN)
-        await bot.send_message(
-            chat_id=KITCHEN_GROUP,
-            text=message,
-            parse_mode="Markdown"
-        )
-        print(f"Sent order to kitchen group @f2d_kitchen")
-    except Exception as e:
-        print(f"Error sending to kitchen: {e}")
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - create a new order"""
-    import hashlib
     order_number = f"F2D-{datetime.now().strftime('%Y%m%d')}-{hashlib.md5(str(update.effective_user.id).encode()).hexdigest()[:3].upper()}"
     
     order_id = init_order_in_db(order_number)
-    
-    # Set initial status
     update_telegram_status(order_id, "New", "System")
     
-    # Get the current status for keyboard
     tg_status = get_telegram_status(order_id)
-    
     keyboard = next_keyboard(tg_status)
     
-    await update.message.reply_text(
-        f"🆕 New order created!
-"
-        f"Order #: {order_number}
-"
-        f"Current status: New
-"
+    update.message.reply_text(
+        f"\U0001F680 New order created!\n"
+        f"Order #: {order_number}\n"
+        f"Current status: New\n"
         f"Group: {ORDER_GROUP}",
         reply_markup=keyboard
     )
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle inline button presses"""
-    from telegram import CallbackQuery
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
-    data = query.data  # "prep", "out", or "done"
+    data = query.data
     user = query.from_user.first_name
-    
-    # Use user ID as order identifier for simplicity
     order_id = query.from_user.id
     current = get_telegram_status(order_id)
     
-    # Define valid transitions
     transitions = {
         "New": "Prep",
         "Prep": "Out",
         "Out": "Done"
     }
     
-    # Check if this is a valid transition
     expected_next = transitions.get(current)
     
     if data == expected_next or (data == "Done" and current == "Out"):
-        # Valid transition - update status
         new_status = data
         update_telegram_status(order_id, new_status, user)
         update_order_status(order_id, new_status)
         
-        # Get new keyboard
         keyboard = next_keyboard(new_status)
         
-        # Update message
-        new_text = f"✅ Order status updated to: {new_status.upper()}"
+        new_text = f"\u2705 Order status updated to: {new_status.upper()}"
         if new_status == "Done":
-            new_text += "
-🎉 Order complete! Ready for delivery."
+            new_text += "\n\U0001F389 Order complete! Ready for delivery."
         
-        await query.edit_message_text(
+        query.edit_message_text(
             text=new_text,
             reply_markup=keyboard
         )
         
-        # Handle status-specific actions
+        # Send to kitchen if transitioning to Prep
         if new_status == "Prep":
-            # Send to kitchen group
-            await send_to_kitchen(order_id, "Order #" + str(order_id)[:8], new_status)
-            
-        elif new_status == "Done":
-            # Notify the order group that order is complete
-            try:
-                await context.bot.send_message(
-                    chat_id=ORDER_GROUP,
-                    text=f"✅ Order #{order_id} marked as **Done**. All tasks complete. Ready for delivery coordination."
-                )
-            except:
-                pass
+            # Use context.bot to send message
+            context.bot.send_message(
+                chat_id=KITCHEN_GROUP,
+                text=f"\U0001F374 *NEW ORDER TO PREP*\n\n"
+                     f"Order #: {order_id}\n"
+                     f"Status: {new_status}\n"
+                     f"\u26A0\uFE0F Atan/Bella has started prep. Cook staff please mark as 'Out' when complete.",
+            )
         
+        # Notify order group if transitioning to Done
+        if new_status == "Done":
+            context.bot.send_message(
+                chat_id=ORDER_GROUP,
+                text=f"\u2705 Order #{order_id} marked as **Done**. All tasks complete.",
+            )
     else:
-        # Invalid transition
-        await query.edit_message_text(
-            text=f"❌ Invalid transition from **{current}** to **{data}**.
-
-"
+        query.edit_message_text(
+            text=f"\u274C Invalid transition from **{current}** to **{data}**.\n\n"
                  f"Expected next step: {expected_next or 'N/A'}",
             reply_markup=next_keyboard(current),
-            parse_mode="Markdown"
         )
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show current order status"""
     import sqlite3
     conn = sqlite3.connect(DATABASE_PATH)
@@ -261,36 +225,178 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     
     if not rows:
-        await update.message.reply_text("No active orders found.")
+        update.message.reply_text("No active orders found.")
         return
     
-    text = "📋 Active orders:
-"
+    text = "\U0001F4CB Active orders:\n"
     for row in rows:
-        text += f"- Order {row[0]}: {row[1]} - {row[2]}
-"
+        text += f"- Order {row[0]}: {row[1]} - {row[2]}\n"
     
-    await update.message.reply_text(text)
+    update.message.reply_text(text)
 
-def main():
-    """Start the bot"""
-    print("Starting Food2Door Telegram Bot...")
-    
+# Create the application builder
+def create_app():
+    """Create and configure the Telegram application"""
+    print("Creating Telegram application...")
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Add error handler
-    async def error_handler(update, context):
-        print(f"Update {update} caused error {context.error}")
-    
-    application.add_error_handler(error_handler)
-    
-    print("Bot is running...")
-    application.run_polling()
+    print("Application created with handlers")
+    return application
 
-if __name__ == "__main__":
-    main()
+# Webhook server handler
+class WebhookHandler(BaseHTTPRequestHandler):
+    """HTTP handler for Telegram webhook updates"""
+    
+    application = None  # Set this from outside
+    
+    def do_POST(self):
+        """Handle POST requests (Telegram webhook updates)"""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        
+        try:
+            # Process the update through the application
+            update = Update.de_json(body.decode('utf-8'), self.application.bot)
+            asyncio.run(self.application.process_update(update))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"ok": true}')
+        except Exception as e:
+            print(f"Error processing update: {e}")
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b'{"error": "Failed to process update"}')
+    
+    def log_message(self, format, *args):
+        """Override to add timestamp"""
+        print(f"[{datetime.now().isoformat()}] {format % args}")
+
+def main():
+    """Main entry point - creates app but runs via webhook server"""
+    print("Initializing Food2Door Telegram Bot...")
+    app = create_app()
+    # For Vercel, we need a webhook server
+    # This is handled by the Vercel routing in vercel.json
+    print(f"Bot initialized. Webhook URL: {WEBHOOK_URL}")
+    return app
+
+# For Vercel serverless functions, export the handler
+def handler(request):
+    """Vercel serverless function handler"""
+    if request.method == "POST":
+        content_length = int(request.headers.get('Content-Length', 0))
+        body = request.body if hasattr(request, 'body') else request.read(content_length)
+        
+        # Get or create app instance (cached)
+        if not hasattr(handler, 'app'):
+            handler.app = create_app()
+            # Set up webhook on first request
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(handler.app.bot.set_webhook(
+                    url=f"{WEBHOOK_URL}/api/bot",
+                    secret_token="food2door_secret_123"
+                ))
+            except Exception as e:
+                print(f"Webhook setup: {e}")
+        
+        try:
+            import json
+            update_data = json.loads(body.decode('utf-8'))
+            update = Update.de_json(update_data, handler.app.bot)
+            
+            # Process in a thread to avoid blocking
+            import threading
+            def process():
+                try:
+                    asyncio.new_event_loop().run_until_complete(
+                        handler.app.process_update(update)
+                    )
+                except Exception as e:
+                    print(f"Process error: {e}")
+            
+            thread = threading.Thread(target=process)
+            thread.start()
+            thread.join(timeout=5)
+            
+            return {"statusCode": 200, "body": json.dumps({"ok": True})}
+        except Exception as e:
+            print(f"Handler error: {e}")
+            return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+    
+    return {"statusCode": 405, "body": "Method not allowed"}
+
+
+# ============================================
+# VERCEL SERVERLESS HANDLER
+# ============================================
+
+# Global app instance (cached for performance)
+_app_instance = None
+
+def get_app():
+    """Get or create cached app instance"""
+    global _app_instance
+    if _app_instance is None:
+        _app_instance = main()
+    return _app_instance
+
+def webhook_handler(request):
+    """
+    Vercel serverless function handler for /api/bot webhook
+    This is called when Telegram sends an update via webhook
+    """
+    import json
+    import asyncio
+    import threading
+    
+    # Get app instance
+    app = get_app()
+    
+    # Only handle POST requests (webhook updates)
+    if request.method != "POST":
+        return {"statusCode": 405, "body": "Method not allowed"}
+    
+    try:
+        # Read request body
+        content_length = int(request.headers.get("Content-Length", 0))
+        body = request.body if hasattr(request, "body") else request.read(content_length)
+        
+        # Parse update
+        update_data = json.loads(body.decode("utf-8"))
+        
+        # Process update asynchronously
+        async def process_update():
+            update = Update.de_json(update_data, app.bot)
+            await app.process_update(update)
+        
+        # Run in a thread to avoid timeout
+        def run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(process_update())
+            finally:
+                loop.close()
+        
+        thread = threading.Thread(target=run)
+        thread.start()
+        
+        # Return immediately, process in background
+        return {"statusCode": 200, "body": json.dumps({"ok": True})}
+        
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+
+# Flask-like endpoint for Vercel
+def api_bot(request):
+    """Handler for /api/bot endpoint"""
+    return webhook_handler(request)
+
