@@ -2,21 +2,5 @@
   "version": 2,
   "build": {
     "framework": "none"
-  },
-  "functions": {
-    "api/webhook.py": {
-      "runtime": "now-python@2.8.1",
-      "memory": 512,
-      "maxDuration": 10
-    }
-  },
-  "routes": [
-    {
-      "source": "/api/webhook",
-      "methods": [
-        "POST"
-      ],
-      "destination": "/api/webhook.py"
-    }
-  ]
+  }
 }
