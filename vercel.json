@@ -4,10 +4,8 @@
     "framework": "none"
   },
   "functions": {
-    "api/webhook.py": {
-      "runtime": "now-python@2.8.1",
-      "memory": 512,
-      "maxDuration": 10
+    "api/webhook/index.py": {
+      "runtime": "now-python@2.8.1"
     }
   },
   "routes": [
@@ -16,11 +14,7 @@
       "methods": [
         "POST"
       ],
-      "destination": "/api/webhook.py"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/api/webhook.py"
+      "destination": "/api/webhook/index.py"
     }
   ]
 }
