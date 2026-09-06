@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Food2Door Telegram Bot - Vercel Serverless Function
 Endpoint: POST /api/webhook
@@ -9,6 +8,10 @@ import asyncio
 import threading
 import os
 import sqlite3
+
+# Required packages for Vercel Python runtime
+REQUIRED_PACKAGES = ["python-telegram-bot"]
+
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
