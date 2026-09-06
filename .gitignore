@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+ENV/
+.env
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
+README.txt (keep in project root)
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

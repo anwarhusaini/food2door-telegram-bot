@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "build": {
+    "framework": "none",
+    "previewBranch": "redirect",
+    "environment": {
+      "TELEGRAM_BOT_TOKEN": {
+        "fromEnv": "TELEGRAM_BOT_TOKEN"
+      },
+      "ORDER_GROUP": {
+        "fromEnv": "ORDER_GROUP"
+      },
+      "FOOD2DOOR_DB": {
+        "fromEnv": "FOOD2DOOR_DB"
+      }
+    }
+  },
+  "functions": {
+    "api/bot.py": {
+      "runtime": "python3.11",
+      "memory": 256,
+      "maxDuration": 30
+    }
+  },
+  "routes": [
+    {
+      "source": "/api/bot",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "destination": "api/bot.py"
+    }
+  ]
+}
