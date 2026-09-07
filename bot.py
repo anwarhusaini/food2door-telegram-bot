@@ -35,7 +35,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Create orders table if not exists
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +49,6 @@ def init_db():
         )
     """)
     
-    # Create telegram_order_status table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS telegram_order_status (
             order_id INTEGER PRIMARY KEY,
@@ -79,7 +77,7 @@ def init_order_in_db(order_number):
         """INSERT INTO orders 
            (order_number, customer_name, phone, delivery_address, order_type, payment_method, status, order_date) 
            VALUES (?, ?, ?, ?, ?, ?, 'New', datetime('now'))""",
-        (order_number, "New Customer", "+60123456789", "Address pending", "Delivery", "Cash")
+        (order_number, "New Customer", "+601****6789", "Address pending", "Delivery", "Cash")
     )
     order_id = cursor.lastrowid
     cursor.execute(
@@ -147,16 +145,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_status = get_telegram_status(order_id)
     keyboard = next_keyboard(tg_status)
     
-    await update.message.reply_text(
-        f"🚀 New order created!
-"
-        f"Order #: {order_number}
-"
-        f"Current status: New
-"
-        f"Click a button below to update status:",
-        reply_markup=keyboard
+    text = (
+        f"🚀 New order created!\n"
+        f"Order #: {order_number}\n"
+        f"Current status: New\n"
+        f"Click a button below to update status:"
     )
+    await update.message.reply_text(text, reply_markup=keyboard)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle inline button presses"""
@@ -177,19 +172,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expected_next = transitions.get(current)
     
     if (data == expected_next) or (data == "done" and current == "Out"):
-        # Map button data to status
         status_map = {"prep": "Prep", "out": "Out", "done": "Done"}
         new_status = status_map.get(data, data.capitalize())
         
         update_telegram_status(order_id, new_status, user)
-        
         keyboard = next_keyboard(new_status)
         
         if new_status == "Done":
-            new_text = f"✅ Order status updated to: {new_status.upper()}
-🎉 Order complete!"
+            new_text = f"✅ Order status updated to: {new_status.upper()}\n🎉 Order complete!"
             
-            # Notify order group
             try:
                 await context.bot.send_message(
                     chat_id=ORDER_GROUP,
@@ -200,36 +191,29 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             new_text = f"✅ Order status updated to: {new_status.upper()}"
             
-            # Send to kitchen if transitioning to Prep
             if new_status == "Prep":
                 try:
+                    kitchen_text = (
+                        f"🍳 *NEW ORDER TO PREP*\n\n"
+                        f"Order #: {order_id}\n"
+                        f"Status: {new_status}\n"
+                        f"⚠️ Atan/Bella has started prep. Cook staff please mark as 'Out' when complete."
+                    )
                     await context.bot.send_message(
                         chat_id=KITCHEN_GROUP,
-                        text=f"🍳 *NEW ORDER TO PREP*
-
-"
-                             f"Order #: {order_id}
-"
-                             f"Status: {new_status}
-"
-                             f"⚠️ Atan/Bella has started prep. Cook staff please mark as 'Out' when complete."
+                        text=kitchen_text
                     )
                 except Exception as e:
                     print(f"Error notifying kitchen: {e}")
         
-        await query.edit_message_text(
-            text=new_text,
-            reply_markup=keyboard
-        )
+        await query.edit_message_text(text=new_text, reply_markup=keyboard)
     else:
         expected_text = expected_next.upper() if expected_next else "N/A"
-        await query.edit_message_text(
-            text=f"❌ Invalid transition from **{current}** to **{data.upper()}**.
-
-"
-                 f"Expected next step: {expected_text}",
-            reply_markup=next_keyboard(current),
+        error_text = (
+            f"❌ Invalid transition from **{current}** to **{data.upper()}**.\n\n"
+            f"Expected next step: {expected_text}"
         )
+        await query.edit_message_text(text=error_text, reply_markup=next_keyboard(current))
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show current order status"""
@@ -249,10 +233,8 @@ def main():
     """Main entry point - start the bot"""
     print("Initializing Food2Door Telegram Bot...")
     
-    # Initialize database
     init_db()
     
-    # Create application
     if not BOT_TOKEN:
         print("ERROR: TELEGRAM_BOT_TOKEN not set!")
         return
@@ -260,7 +242,6 @@ def main():
     print("Creating Telegram application...")
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CallbackQueryHandler(button_callback))
@@ -268,7 +249,6 @@ def main():
     print("Application created with handlers")
     print("Starting polling...")
     
-    # Start polling
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
